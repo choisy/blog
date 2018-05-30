@@ -1,0 +1,60 @@
+---
+title: System language
+author: Marc Choisy
+date: '2018-05-14'
+slug: system-language
+categories:
+  - R
+  - system
+tags: []
+---
+
+```{r include = FALSE}
+# general options:
+knitr::knit_hooks$set(margin = function(before, options, envir) {
+  if (before) par(mgp = c(1.5, .5, 0), bty = "n", plt = c(.105, .97, .13, .97))
+  else NULL
+})
+
+knitr::opts_chunk$set(margin = TRUE, prompt = TRUE, comment = "",
+                      collapse = TRUE, cache = FALSE, autodep = TRUE,
+                      dev.args = list(pointsize = 11), fig.height = 3.5,
+                      fig.width = 4.24725, fig.retina = 2, fig.align = "center")
+
+```
+
+You can change the language in which R is talking to the user from the
+definition of the `LANG` environment variable:
+
+```{r}
+Sys.getenv("LANG")
+log(-3)
+```
+
+Changing to English:
+
+```{r}
+Sys.setenv(LANG = "en_US.UTF-8")
+log(-3)
+```
+
+and back to French:
+
+```{r}
+Sys.setenv(LANG = "fr_FR.UTF-8")
+log(-3)
+```
+
+Or, alternatively:
+
+```{r}
+Sys.setenv(LANG = "en")
+log(-3)
+```
+
+and then:
+
+```{r}
+Sys.setenv(LANG = "fr")
+log(-3)
+```

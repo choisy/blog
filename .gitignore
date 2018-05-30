@@ -1,0 +1,6 @@
+public/
+content/post/*.html
+.Rproj.user
+.Rproj.user/*
+.RData
+.Rhistory

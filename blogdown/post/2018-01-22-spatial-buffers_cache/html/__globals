@@ -1,0 +1,26 @@
+unnamed-chunk-2	library	sp	purrr	dplyr	rgeos	raster	geosphere
+unnamed-chunk-3	vn	gadm	%>%	largest_polygons
+unnamed-chunk-4	plot	vn
+unnamed-chunk-5	set.seed	nb	cases	spsample	vn
+unnamed-chunk-6	plot	vn	points	cases
+unnamed-chunk-7	radius	buffers	buffer	cases
+unnamed-chunk-8	plot	vn	adjustcolor	buffers
+unnamed-chunk-9	plot	buffers	adjustcolor	vn	box
+unnamed-chunk-10	areas	sapply	seq_along	buffers	areaPolygon	gIntersection	vn	x
+unnamed-chunk-11	wpvn	getpop
+unnamed-chunk-12	plot	wpvn
+unnamed-chunk-13	popsizes	extract	wpvn	cases	radius	%>%	sapply	sum
+unnamed-chunk-14	densities	popsizes	areas
+unnamed-chunk-15	coord_mat	coordinates	cases
+unnamed-chunk-16	llCRS	CRS
+unnamed-chunk-17	calc_area	sp	%>%	buffer	radius	gIntersection	polygon	areaPolygon
+unnamed-chunk-18	calc_popsize	extract	raster	sp	radius	%>%	sapply	sum
+unnamed-chunk-19	coord_mat	%>%	data.frame	mutate	map2	x	y	lapply	.	SpatialPoints	llCRS	sapply	sp	calc_area	radius	vn	calc_popsize	wpvn	popsize	area	select
+unnamed-chunk-20	buffering	require	sp	purrr	rgeos	dplyr	raster	geosphere	stopifnot	proj4string	rast	polyg	coord	%>%	data.frame	mutate	map2	x	y	lapply	.	SpatialPoints	llCRS	sapply	calc_area	radius	vn	calc_popsize	wpvn	popsize	area	select
+unnamed-chunk-21	buffering	coord_mat	radius	wpvn	vn
+unnamed-chunk-22	gcvn	getgcvn
+unnamed-chunk-23	plot	gcvn	buffers
+unnamed-chunk-24	show_legend	gcvn
+unnamed-chunk-25	plot	buffers	gcvn	vn	box
+unnamed-chunk-26	calc_globcov	extract	raster	sp	radius	%>%	table	lapply	list	I	sum	f	x	do.call	`/`	.
+unnamed-chunk-27	coord_mat	%>%	data.frame	%$%	map2	x	y	lapply	.	SpatialPoints	llCRS	calc_globcov	radius	gcvn	do.call	bind_rows	mutate_all	funs	ifelse	is.na	bind_cols

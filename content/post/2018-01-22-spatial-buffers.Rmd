@@ -1,0 +1,270 @@
+---
+title: Spatial buffers
+author: Marc Choisy
+date: '2018-01-22'
+slug: spatial-buffers
+categories:
+  - R
+  - spatial
+  - statistics
+tags: []
+---
+
+```{r include = FALSE}
+# general options:
+knitr::knit_hooks$set(margin = function(before, options, envir) {
+  if (before) par(mgp = c(1.5, .5, 0), bty = "n", plt = c(.105, .97, .13, .97))
+  else NULL
+})
+
+knitr::opts_chunk$set(margin = TRUE, prompt = TRUE, comment = "",
+                      collapse = TRUE, cache = TRUE, autodep = TRUE,
+                      dev.args = list(pointsize = 11), fig.height = 3.5,
+                      fig.width = 4.24725, fig.retina = 2, fig.align = "center")
+
+```
+
+## Packages needed
+
+Install these packages if they are not already installed on your system, then
+load them:
+
+```{r message = FALSE}
+library(sp)        # plot, points, spsample
+library(purrr)     # map2
+library(dplyr)     # %>%, mutate
+library(rgeos)     # gIntersection
+library(raster)    # plot, buffer
+library(geosphere) # areaPolygon
+```
+
+We can compute statistics in buffer zones around specific points. For that we
+need spatial data in raster format. These data can be qualitative (e.g. land
+cover) or quantitative (e.g elevation or population size).
+
+## Defining buffers zone and their areas
+
+Let's choose 10 points (cases) at random inside the polygon of Vietnam. First
+the polygon of Vietnam:
+
+```{r}
+# devtools::install_github("choisy/gadmVN")
+# devtools::install_github("choisy/sptools")
+vn <- gadmVN::gadm(level = "country") %>% sptools::largest_polygons()
+```
+
+Let's see that polygon:
+
+```{r}
+plot(vn)
+```
+
+Let's now choose 10 random locations inside the polygon of Vietnam:
+
+```{r}
+set.seed(30101976) # for the purpose of the reproducibility here only
+nb <- 10
+cases <- spsample(vn, nb, "random")
+```
+
+Let's see that:
+
+```{r}
+plot(vn)
+points(cases, pch = 3, col = "red")
+```
+
+Let's now define buffer zones around these points with a radius of 20 km:
+
+```{r}
+radius <- 20000 # in meters
+buffers <- buffer(cases, radius, dissolve = FALSE)
+```
+
+Let's see that:
+
+```{r}
+plot(vn, col = adjustcolor("blue", .05))
+plot(buffers, col = adjustcolor("red", .1), add = TRUE)
+```
+
+Note that the 8th of these buffers is crossed the border of Vietnam:
+
+```{r}
+plot(buffers[8], col = adjustcolor("red", .05))
+plot(vn, col = adjustcolor("blue", .1), add = TRUE)
+box(bty = "o")
+```
+
+For that reason, we first need to compute the intersection of the buffers with
+the polygon of Vietnam before we can compute the areas of these buffers:
+
+```{r}
+(areas <- sapply(seq_along(buffers),
+                 function(x) areaPolygon(gIntersection(vn, buffers[x])) / 10^6))
+```
+
+Note that the area of the 8th buffer is slightly less that the areas of the
+other buffers.
+
+## Quantitative statistics
+
+Let's start we a quantitative example, looking at population size  Vietnam:
+
+```{r}
+# devtools::install_github("choisy/worldpopVN")
+wpvn <- worldpopVN::getpop(2015)
+```
+
+The population size for Vietnam looks like this:
+
+```{r}
+plot(wpvn)
+```
+
+Let's extract the values inside each buffers and sum them:
+
+```{r}
+(popsizes <- raster::extract(wpvn, cases, buffer = radius) %>% sapply(sum, na.rm = TRUE))
+```
+
+To get the population density (/ km2) in this buffer zones, we just need to
+divide this values by the areas:
+
+```{r}
+(densities <- popsizes / areas)
+```
+
+### A pipeline version
+
+Let's describe here a pipeline version of the code above. Let's imagine that we
+start from a matrix of coordinates:
+
+```{r}
+(coord_mat <- coordinates(cases))
+```
+
+The pipeline below used the above-defined objects `radius`, `vn` and `wpvn`, and
+also the projection `llCRS` defined below:
+
+```{r}
+llCRS <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+```
+
+Let's now then define 2 utilitary functions:
+
+```{r}
+calc_area <- function(sp, radius, polygon) {
+  sp %>%
+    buffer(radius) %>%
+    gIntersection(polygon) %>%
+    areaPolygon()
+}
+```
+
+and
+
+```{r}
+calc_popsize <- function(sp, radius, raster) {
+  raster::extract(raster, sp, buffer = radius) %>% sapply(sum, na.rm = TRUE)
+}
+```
+
+Then, the pipeline goes:
+
+```{r}
+coord_mat %>%
+  data.frame %>% 
+  mutate(sp      = map2(x, y, data.frame) %>% lapply(. %>% SpatialPoints(llCRS)),
+         area    = sapply(sp, calc_area, radius, vn),
+         popsize = sapply(sp, calc_popsize, radius, wpvn),
+         density = popsize / area) %>%
+  dplyr::select(-sp)
+```
+
+
+### A function version
+
+We can put the above pipe into a function:
+
+```{r}
+buffering <- function(coord, radius, rast, polyg) {
+  require(sp)
+  require(purrr)
+  require(rgeos)
+  require(dplyr)
+  require(raster)
+  require(geosphere)
+  stopifnot(proj4string(rast) == proj4string(polyg))
+  coord %>%
+  data.frame %>% 
+      mutate(sp      = map2(x, y, data.frame) %>% lapply(. %>% SpatialPoints(llCRS)),
+         area    = sapply(sp, calc_area, radius, vn),
+         popsize = sapply(sp, calc_popsize, radius, wpvn),
+         density = popsize / area) %>%
+  dplyr::select(-sp)
+}
+```
+
+Using that function:
+
+```{r}
+buffering(coord_mat, radius, wpvn, vn)
+```
+
+## Qualitative statistics
+
+Let's see now how it works with qualitative variables such as land cover.
+
+```{r}
+gcvn <- globcoverVN::getgcvn()
+```
+
+The plot of the land cover with the buffers:
+
+```{r}
+plot(gcvn)
+plot(buffers, add = TRUE)
+```
+
+To see the legend:
+
+```{r}
+globcoverVN::show_legend(gcvn)
+```
+
+Magnifying the 8th buffer:
+
+```{r}
+plot(buffers[8])
+plot(gcvn, axes = FALSE, legend = FALSE, add = TRUE)
+plot(buffers[8], add = TRUE)
+plot(vn, add = TRUE)
+box(bty = "o")
+```
+
+We can calculate the percentage of land cover for each buffer by using this
+function:
+
+```{r}
+calc_globcov <- function(sp, radius, raster) {
+  raster::extract(raster, sp, buffer = radius) %>% 
+    table() %>% 
+    (function(x) lapply(list(I, sum), function(f) f(x))) %>%
+    do.call(`/`, .)
+}
+```
+
+like this:
+
+```{r}
+coord_mat %>% 
+  data.frame() %$% 
+  map2(x, y, data.frame) %>%
+  lapply(. %>% SpatialPoints(llCRS)) %>% 
+  lapply(calc_globcov, radius, gcvn) %>% 
+  do.call(dplyr::bind_rows, .) %>% 
+  mutate_all(funs(ifelse(is.na(.), 0, .))) %>%
+  bind_cols(data.frame(coord_mat), .)
+```
+

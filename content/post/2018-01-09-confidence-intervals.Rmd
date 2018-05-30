@@ -1,0 +1,67 @@
+---
+title: Confidence intervals
+author: Marc Choisy
+date: '2018-01-09'
+slug: confidence-intervals
+categories:
+  - R
+  - statistics
+tags: []
+---
+
+
+```{r include = FALSE}
+# general options:
+knitr::knit_hooks$set(margin = function(before, options, envir) {
+  if (before) par(mgp = c(1.5, .5, 0), bty = "n", plt = c(.105, .97, .13, .97))
+  else NULL
+})
+
+knitr::opts_chunk$set(margin = TRUE, prompt = TRUE, comment = "",
+                      collapse = TRUE, cache = TRUE, autodep = TRUE,
+                      dev.args = list(pointsize = 11), fig.height = 3.5,
+                      fig.width = 4.24725, fig.retina = 2, fig.align = "center")
+
+```
+
+Simulating fake data:
+
+```{r}
+x <- 10 * runif(10)
+y <- rnorm(10, mean = 2 + 3 * x, 3)
+```
+
+Visualizing:
+
+```{r}
+plot(y ~ x, col = "blue", pch = 19)
+```
+
+Estimating a linear model:
+
+```{r}
+model <- lm(y ~ x)
+```
+
+Calculating  and plotting 95 % confidence interval based on simulations:
+
+```{r}
+xr <- 100
+nb <- 1000
+ci <- .95
+eps <- (1 - ci) / 2
+xs <- seq(min(x), max(x), length = xr)
+coef_val <- MASS::mvrnorm(nb, coef(model), vcov(model))
+ys <- t(coef_val %*% rbind(1, xs))
+predconf <- t(apply(ys, 1, quantile, c(eps, 1 - eps)))
+```
+
+Let's plot all this:
+
+```{r}
+plot(y ~ x, type = "n")
+matlines(xs, ys, col = adjustcolor("black", .05), lty = 1)
+matlines(xs, predconf, col = "red", lty = 1, lwd = 2)
+points(y ~ x, col = "blue", pch = 19)
+```
+
