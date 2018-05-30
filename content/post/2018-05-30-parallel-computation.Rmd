@@ -1,0 +1,85 @@
+---
+title: Parallel computation
+author: Marc Choisy
+date: '2018-05-30'
+slug: parallel-computation
+categories:
+  - R
+  - computing
+tags: []
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r include = FALSE}
+# general options:
+knitr::knit_hooks$set(margin = function(before, options, envir) {
+  if (before) par(mgp = c(1.5, .5, 0), bty = "n", plt = c(.105, .97, .13, .97))
+  else NULL
+})
+
+knitr::opts_chunk$set(margin = TRUE, prompt = TRUE, comment = "", eval = FALSE,
+                      collapse = TRUE, cache = FALSE, autodep = TRUE,
+                      dev.args = list(pointsize = 11), fig.height = 3.5,
+                      fig.width = 4.24725, fig.retina = 2, fig.align = "center")
+
+```
+
+## Parallel version of `replicate` with `parallel`
+
+Loading the package:
+
+```{r}
+library(parallel)
+```
+
+of which we'll use the 6 following functions:
+
+* `detectCores` which detects the number of CPU cores;
+* `makeCluster` which creates a cluster of a given number of cores;
+* `clusterEvalQ` which evaluates a literal expression on each cluster node. It
+is a parallel version of `evalq`.
+* `clusterExport` which assigns the values on the master R process of the
+variables named in its named list argument to variables of the same names in the
+global environment (aka workspace) of each node;
+* `parSapply` parallel version of `sapply`.
+* `stopCluster` which shuts done the cluster.
+
+The first step is to create a cluster. It's good practice to let one core
+available, in case:
+
+```{r}
+cl <- makeCluster(detectCores() - 1)
+```
+
+Then, we need to populate each core of the cluster with any package we may need:
+
+```{r}
+clusterEvalQ(cl, library(package1, package2))
+```
+
+as well as any object (data and functions) we may need from the current
+workspace, for example:
+
+```{r}
+clusterExport(cl, c("data1", "data2", "fct1", "fct2"))
+```
+
+Then, you ready to launch your calculations with `nb` replicates:
+
+```{r}
+out <- parSapply(cl, 1:nb, function(x) {
+# here you include what should be done in each replication.
+# this calculation will require the packages package1 and package2,
+# as well as data data1 and data2 and function fct1 and fct2 of the
+# workspace.
+})
+```
+
+Once your calculations are done, you have to terminate the cluster:
+
+```{r}
+stopCluster(cl)
+```
+
