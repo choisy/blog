@@ -1,0 +1,36 @@
+---
+title: Downloading files from Github or Dropbox
+author: Marc Choisy
+date: '2018-09-10'
+slug: downloading-files-from-github-or-dropbox
+categories:
+  - R
+tags: []
+---
+
+There are functions in R that work on URL, such as `download.file` or even
+`read.table` (plus many others, including some from dedicated packages such as
+`RCurl`). One may thus think that (s)he can just go on a Github or Dropbox
+webpage, copy the URL of the file their are interested in and paste it directly
+into R. It's almost that, except for a little tweak. Indeed the URL that you
+would copy this way is the URL to the file display on the webpage. What you need
+instead is the URL of the actual file. And this can be accessed by ending the URL
+with `?raw=1` (or, equivalently, `?raw=t`, `?raw=T`, `?raw=true`, `?raw=True`, 
+`?raw=TRUE`, etc...). By default, if you copy-paste from Dropbox, your URL will
+end by `?dl=0`. What you have to do here is just replace this `?dl=0` by `?raw=1`
+in your URL. Copied from Github, your URL will not end with `?dl=0` or `?raw=1`,
+then just add `?raw=1` to the end of your URL. Here is an example on how to
+download and laod an `rda` file from GitHub:
+
+```{r eval = FALSE}
+download.file("https://github.com/.../data.rda?raw=1", "data.rda")
+load("data.rda")
+file.remove("data.rda")
+```
+
+Below is an example on how to read a table directly from Dropbox:
+
+```{r eval = FALSE}
+data <- read.table("https://www.dropbox.com/.../data.txt?raw=1")
+```
+
