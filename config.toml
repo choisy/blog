@@ -1,6 +1,6 @@
 baseurl = "https://choisy.github.io"
 languageCode = "en-us"
-title = "R receipes"
+title = "R recipes"
 theme = "hugo-lithium"
 googleAnalytics = ""
 disqusShortname = ""
