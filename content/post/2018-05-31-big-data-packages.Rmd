@@ -1,0 +1,100 @@
+---
+title: Big data packages
+author: Marc Choisy
+date: '2018-05-31'
+slug: big-data-packages
+categories:
+  - R
+  - package
+  - big data
+tags: []
+---
+
+```{r include = FALSE}
+# general options:
+knitr::knit_hooks$set(
+  margin = function(before, options, envir) {
+    if (before) par(mgp = c(1.5, .5, 0), bty = "n", plt = c(.105, .97, .13, .97))
+    else NULL
+  },
+  prompt = function(before, options, envir) {
+    options(prompt = if (options$engine %in% c("sh", "bash")) "$ " else "> ")
+  })
+
+
+knitr::opts_chunk$set(margin = TRUE, prompt = TRUE, comment = "", eval = FALSE,
+                      collapse = TRUE, cache = FALSE, autodep = TRUE,
+                      dev.args = list(pointsize = 11), fig.height = 3.5,
+                      fig.width = 4.24725, fig.retina = 2, fig.align = "center")
+
+```
+
+When you create an R data package, it may happen that the data is too big to be
+hosted on CRAN that has a package size limit of 5 MB or even on Github that has
+a repository size limit of 1 GB and a file size limit of 100 MB. Here I show how
+to build such a package in a way that leaves the data on another server and then
+lets the user download the data when (s)he needs it for the first time. The
+downloadoing process copy the data in the installed package file hierarchy so
+that the user will not have to download it again for subsequent uses.
+
+In the example I show below I simply use dropbox for the data server. This is
+particularly convenient when the local repository of the package is synchronized
+with dropbox. In that case, the operation basically consists in (i) making Git
+ignore the data and (ii) allowing the user to download the data from dropbox
+when (s)he needs it for the first time.
+
+
+* In your package file hierarchy, create a `data-raw` directory with the following
+structure:
+
+```{r prompt = FALSE}
+data-raw
+       |-data_creation.R
+       |-dropbox
+               |-data-raw
+               |-extdata
+```
+
+where `data-raw/` is created, following Wickham's suggestion, by the following
+command
+
+```{r eval = FALSE}
+devtools::use_data_raw()
+```
+
+This directory contains raw data that are used to generate the data that will be
+include in the package. This directory will not be included in the bundled
+version of the package. Also, still following Wickham's suggestion, this
+`raw-data/` contains an R script `data-creation.R` that documents how the clean
+version of the data that will be included in the package is created from these
+raw data. What we add here to this file structure, is the sub-directory 
+`dropbox/` that will contain the data that will not be included in the bundled
+version of the package but instead will be downloaded by the user when (s)he
+first need them. So will have to make Git ignore this directory, at the bash
+command line:
+
+```{r engine = "bash", eval = FALSE}
+cat "data-raw/dropbox" >> .gitignore 
+```
+
+or manually. Then, create a `get*` function. This function will test whether the
+data is already present in the package file hierarchy. If not, it will ask the 
+user when (s)he wants to download and install it
+
+```{r}
+getsrtm <- function() {
+  if (!file.exists(paste0(installed.packages()["srtmVN", "LibPath"], "/srtmVN/extdata/srtm90.tif"))) {
+    message("SRTM data are not on disk.")
+    message("Do you want to download them from the internet (108.0 MB)? y (default) / n")
+    ans <- readline()
+    if (ans %in% c("y", ""))
+      download("http://marcchoisy.free.fr/srtm90.tif", "srtmVN", "srtm90.tif")
+    else return(NULL)
+  }
+  data("srtm90", package = "srtmVN")
+  srtm90@file@name <- system.file("extdata", "srtm90.tif", package = "srtmVN")
+  srtm90
+}
+
+```
+
