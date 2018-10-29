@@ -1,0 +1,170 @@
+---
+title: Computing population centers
+author: Marc Choisy
+date: '2018-10-29'
+slug: computing-population-centers
+categories:
+  - spatial
+tags: []
+---
+
+In demographics, the centre of population (or population center, or population
+centroid) of a region is a geographical point that describes a centrepoint of
+the region's population. See [here](https://en.wikipedia.org/wiki/Center_of_population)
+for more detail. The figure below shows for example the change of the location
+of the population center of the USA from 1790 to 2010:
+
+<div style="text-align:center">
+<a title="By U.S. Census Bureau [Public domain], via Wikimedia Commons" href="https://commons.wikimedia.org/wiki/File:US_Mean_Center_of_Population_1790-2010.PNG"><img width="512" alt="US Mean Center of Population 1790-2010" src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/US_Mean_Center_of_Population_1790-2010.PNG/512px-US_Mean_Center_of_Population_1790-2010.PNG"></a>
+</div>
+
+In this post we show how we can use population density raster data from the
+[WorldPop](http://www.worldpop.org.uk) project to calculate population centers
+of given polygons such as those provided by the [GADM](https://gadm.org) 
+project. We will use Vietnam as a case study, first calculating the population
+center of the province of Hanoi and comparing it to the geometric barycenter.
+Then, we'll introduce a pipeline that allows to calculate the population centers
+of all the provinces of Vietnam in one go.
+
+The [WorldPop](http://www.worldpop.org.uk) data can be accessed directly from
+the [worldpopVN](https://github.com/choisy/worldpopVN) package. The
+[GADM](https://gadm.org) data will be downloaded using the `gadm()` function of
+the [`sptools`](https://github.com/choisy/sptools) package.
+
+```{r}
+# install.packages(c("devtools", "sp", "raster", "rgeos", "magrittr", "dplyr", "purrr"))
+# devtools::install_github("choisy/worldpopVN")
+# devtools::install_github("choisy/sptools")
+```
+
+```{r message = FALSE}
+library(sp)       # sp methods
+library(raster)   # raster methods
+library(magrittr) # %>% 
+```
+
+The [WorldPop](http://www.worldpop.org.uk) data:
+
+```{r}
+wp <- worldpopVN::getpop()
+```
+
+Which gives:
+
+```{r}
+plot(wp)
+```
+
+The provinces polygons from [GADM](https://gadm.org):
+
+```{r}
+gadm <- sptools::gadm("vietnam", "sp", 1)
+```
+
+Which gives:
+
+```{r}
+plot(gadm)
+```
+
+Let's crop the raster data along the polygon of the province of Hanoi:
+
+```{r}
+hanoi_polygon <- subset(gadm, VARNAME_1 == "Ha Noi")
+hanoi <- sptools::crop_on_poly(wp, hanoi_polygon)
+```
+
+Which gives:
+
+```{r}
+plot(hanoi)
+```
+
+From that, calculating the population center needs 2 steps:
+
+* extracting the population values in each pixel and transforming them into
+weights (i.e. between 0 and 1 and summing to 1);
+* extracting the coordinates of the center of each pixel and weight-summing the
+longitude and latitude values with the weights calculated in the first step.
+
+Before these 2 steps, the raster need to be converted to a `SpatialPointsDataFrame`
+object:
+
+```{r}
+hanoi2 <- raster::rasterToPoints(hanoi, spatial = TRUE)
+```
+
+The first step is:
+
+```{r}
+values <- hanoi2@data[[1]]
+weights <- values / sum(values)
+```
+
+The second step is:
+
+```{r}
+pop_center <- hanoi2 %>%
+  sp::coordinates() %>%
+  as.data.frame() %>%
+  lapply(. %>%
+           `*`(weights) %>%
+            sum()) %>%
+  unlist()
+```
+
+For comparison, let's compute the simple geometric barycenter from the polygon of Hanoi:
+
+```{r}
+barycenter <- hanoi_polygon %>% 
+  rgeos::gCentroid() %>% 
+  sp::coordinates()
+```
+
+Let's now compare the locations of the population center and the geometric
+barycenter:
+
+```{r}
+plot(hanoi)
+points(pop_center[1], pop_center[2], pch = 1) # circle
+points(barycenter[1], barycenter[2], pch = 2) # triangle
+```
+
+## A pipeline to calculate the population centers of all the provinces
+
+Let's now imagine that we want to calculate the coordinates of the population
+centers of all the provinces of the `gadm` object. First, we'd need to include
+the 2 steps of the centroid calculation into a function:
+
+```{r}
+weighted_centroid <- function(spptdf) {
+  require(sp)
+  require(magrittr)
+  weights <- spptdf %>% # step 1
+    slot("data") %>% 
+    {. / sum(.)}
+  spptdf %>%            # step 2
+    coordinates() %>%
+    as.data.frame() %>%
+    lapply(. %>%
+             `*`(weights) %>%
+             sum()) %>%
+    unlist()
+}
+```
+
+Then, we can run the following pipeline. It takes about 15' on a MacBook Pro, 
+the vast majority of that time being for the `crop_on_poly()` call.
+
+```{r eval = FALSE}
+pop_centers <- gadm %>%
+  sptools::as_list() %>% 
+  lapply(sptools::crop_on_poly, rstr = wp) %>% 
+  lapply(raster::rasterToPoints, spatial = TRUE)) %>% 
+  lapply(weighted_centroid) %>%
+  purrr::reduce(dplyr::bind_rows)
+```
+
+
+
+
