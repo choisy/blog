@@ -160,11 +160,13 @@ the vast majority of that time being for the `crop_on_poly()` call.
 pop_centers <- gadm %>%
   sptools::as_list() %>% 
   lapply(sptools::crop_on_poly, rstr = wp) %>% 
-  lapply(raster::rasterToPoints, spatial = TRUE)) %>% 
+  lapply(raster::rasterToPoints, spatial = TRUE) %>% 
   lapply(weighted_centroid) %>%
   purrr::reduce(dplyr::bind_rows)
 ```
 
-
+```{r include = FALSE}
+file.remove(grep("gadm", dir(), value = TRUE))
+```
 
 
