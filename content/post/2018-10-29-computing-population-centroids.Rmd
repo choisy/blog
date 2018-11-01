@@ -153,13 +153,13 @@ weighted_centroid <- function(spptdf) {
 }
 ```
 
-Then, we can run the following pipeline. It takes about 15' on a MacBook Pro, 
+Then, we can run the following pipeline. It takes about 10' on a MacBook Pro, 
 the vast majority of that time being for the `crop_on_poly()` call.
 
 ```{r eval = FALSE}
 pop_centers <- gadm %>%
   sptools::as_list() %>% 
-  lapply(sptools::crop_on_poly, rstr = wp) %>% 
+  parallel::mclapply(sptools::crop_on_poly, rstr = wp) %>% 
   lapply(raster::rasterToPoints, spatial = TRUE) %>% 
   lapply(weighted_centroid) %>%
   purrr::reduce(dplyr::bind_rows)
