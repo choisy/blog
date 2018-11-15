@@ -1,8 +1,12 @@
 public/
 content/post/*.html
+content/post/*_cache/*
+content/post/*_files/*
+static/*
 .Rproj.user
 .Rproj.user/*
 .RData
 .Rhistory
 material/*
 *.DS_Store
+blogdown/*
