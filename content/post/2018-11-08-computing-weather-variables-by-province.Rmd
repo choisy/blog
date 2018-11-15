@@ -1,0 +1,628 @@
+---
+title: Computing weather variables by province
+author: Marc Choisy
+date: '2018-11-08'
+slug: computing-weather-variables-by-province
+categories:
+  - R
+  - computing
+  - spatial
+  - Kriging
+tags: []
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+Weather variables such as temperature, humidity, rainfall, *etc*... are
+collected from climatic stations. These data are thus available from **points**
+in space whereas we often need them to be representative of administrative units 
+(*e.g.* provinces) which are **polygons**. A strategy to transform points data 
+into polygons data is to perform **interpolation** of points data onto a **grid**
+and then **aggregation** of grid data into polygons, as illustrated on the
+figure below:
+
+<div style = "text-align:center">
+  <img src = "2018-11-08-computing-weather-variables-by-province_images/interpolation-aggregation.png" width = "300"/>
+</div>
+
+On this figure, 4 climatic stations are represented by red dots. Interpolation
+consists in using data from these red dot climatic stations to compute values on
+blue nodes of the grid. Aggregation then consists in using the data from the blue
+nodes inside a given polygon to compute variables that are representative of this
+polygon. In practice, both the interpolation and the aggregation steps can be
+performed by a number of different algorithms. One common algorithm used for 
+spatial interpolation is **kriging** that we will consider here. A way simple to
+perform aggregation is to consider the mean of the values of the blue nodes inside
+a polygon. This produces a value that is representative of the polygon as a
+geomtric object. However, when we consider provinces as spatial units in
+epidemiology, what we often want our variables to be representative of is more
+the **population** living inside the province polygon than the province polygon
+as a geometric object. A way to do so when computing the aggregated variables,
+is to **weight** the data from each blue node using a measure of population size
+inside the green square around that blue node, as illustrated on the figure below
+where the sizes of the blue node represent the population weights:
+
+<div style = "text-align:center">
+  <img src = "2018-11-08-computing-weather-variables-by-province_images/weighted-aggregation.png" width = "300"/>
+</div>
+
+This is now possible thanks to the [WorldPop](http://www.worldpop.org.uk)
+project that provides population sizes per pixels for a large number of
+countries around the world. An obvious way to compute weights from these
+pixel-based population data is to divide the population size in each pixel
+by the sum of the population sizes of all the pixels inside the same polygon.
+This way, we ensure that the weights of all the pixels of a given polygon sum
+to 1. They thus reflect where the population of a given province moslty live. In
+this post we will show how to perform so in R, using Vietnam as an example.
+
+## Packages
+
+We will need the following packages:
+
+```{r message = FALSE}
+# install.package(c("parallel", "devtools", "sf", "sp", "raster", "tidyr", "dplyr", "purrr", "automap"))
+# devtools::install_github(paste0("choisy/", c("imhen", "srtmVN", "mcutils", "sptools", "worldpopVN")))
+library(sf)      # as
+library(sp)      # proj4string, plot, coordinates, merge
+library(raster)  # plot, overlay, values
+library(sptools) # gadm, make_grid, add_from_raster, add_variable_spdf, 
+                 # na_exclude, change_data, apply_pts_by_poly, grid2raster, 
+                 # split_on_poly, resample_from_grid, rescale_raster
+library(mcutils) # ovv
+library(tidyr)   # gather, separate, spread
+library(dplyr)   # select, filter, arrange, mutate, mutate_at, mutate_if
+```
+
+## The data
+
+### Climatic data
+
+The climatic data are available by month for 67 climatic stations accross Vietnam
+from the
+[Institute of Hydrology, Meteorology Science and Climate Change](http://vnclimate.vn/en)
+of Vietnam and packaged in the [`imhen`](https://choisy.github.io/imhen) R
+package:
+
+```{r}
+meteo <- imhen::meteo
+```
+
+for the climatic data that look like
+
+```{r}
+ovv(meteo)
+```
+
+and
+
+```{r}
+stations <- as(imhen::stations, "Spatial")
+```
+
+for the stations and their elevations, which look like
+
+```{r}
+ovv(stations)
+```
+
+Note that `stations` is not projected:
+
+```{r}
+proj4string(stations)
+```
+
+### Geographical data
+
+The grid on which the interpolation will be performed will be generated from the
+polygon of the whole country that can be obtained from 
+[GADM](https://gadm.org):
+
+```{r}
+country <- gadm("vietnam", "sp", 0)
+```
+
+And the polygons of the provinces of Vietnam needed for the aggregation step 
+can also be obtained from [GADM](https://gadm.org):
+
+```{r}
+provinces <- gadm("vietnam", "sp", 1)
+```
+
+None of these polygons is projected:
+
+```{r}
+proj4string(country)
+proj4string(provinces)
+```
+
+Here is the country polygon together with the locations of the climatic stations:
+
+```{r}
+plot(country)
+plot(stations, add = TRUE, col = "red")
+```
+
+And here are the polygons the of the provinces:
+
+```{r}
+plot(provinces)
+```
+
+### Elevation data
+
+In order to improve performance, the spatial interpolation will be performed
+using latitude and elevation as **covariables**. Elevation data can be retrieved
+from the [SRTM](http://srtm.csi.cgiar.org) project (vertical error reported to
+be less than 16 m). The data for Vietnam from that project are available from
+the [`srtmVN`](https://github.com/choisy/srtmVN) R package:
+
+```{r}
+elevation <- srtmVN::getsrtm()
+```
+
+Note that `elevation` is not projected either:
+
+```{r}
+proj4string(elevation)
+```
+
+And the data look like this:
+
+```{r}
+plot(elevation)
+```
+
+### Population density data
+
+Finally, the population data that we will use for the aggregation are from the 
+[WorldPop](http://www.worldpop.org.uk) project that can be accessed directly
+from the [`worldpopVN`](https://github.com/choisy/worldpopVN) R package:
+
+```{r}
+popdensity <- worldpopVN::getpop()
+```
+
+These data are not not projected either:
+
+```{r}
+proj4string(popdensity)
+```
+
+and look like this:
+
+```{r}
+plot(popdensity)
+```
+
+In the next 2 sections, we'll show the details of the interpolation and
+aggregation steps respectively. Note that these two steps are applied to a given
+climatic variable on a given month (of a given year). In the last section, we'll
+show how to assemble these 2 steps into a pipeline that
+
+* **splits** the data by climatic variable and month;
+* **applies** interpolation and aggregation on a given variable and a given month;
+* **combines** the results and puts them into shape.
+
+## Interpolation
+
+As explained above, the first step of the algorithm is interpolation of the
+data collected from climatic stations (points) onto a grid (*i.e.* a collection
+of points regularly spaced). For that we thus need to generate a grid.
+Furthermore, as explained above too, in order to improve the performance of the
+interpolation, we will consider latitude and elevation as covariables and these
+variables thus need to be added to the grid. The following function makes a grid
+of approximately `n` cells from a `SpatialPolygons*` `plgn` with the latitude
+and the variable `var` of the `Raster*` `rstr` as covariables:
+
+```{r}
+make_grid <- function(plgn, rstr, var, n, ...) {
+  require(magrittr) # %>% 
+  plgn %>%
+    sptools::make_grid(n, ...) %>%
+    sptools::add_from_raster(rstr, var) %>%
+    sptools::add_variable_spdf(., data.frame(latitude = coordinates(.)[, 2]))
+}
+```
+
+Let's use this function to generate a grid of approximately 10,000 cells inside
+Vietnam. It takes about **20''** on a MacBook Pro:
+
+```{r message = FALSE}
+grid <- make_grid(country, elevation, "elevation", 10000)
+```
+
+We can check that there are approximately 10,000 cells:
+
+```{r}
+length(grid)
+```
+
+Next, we need a function that takes data of one given climatic variable from a
+given month together with a grid as inputs and returns the interpolated values
+of the data on the grid. The following function is one option for such a
+function, using kriging:
+
+```{r}
+kriging <- function(points, grid, formula, proj) {
+  require(magrittr) # %>%
+  points %>%
+    sptools::na_exclude() %>% 
+    sp::spTransform(proj) %>% 
+    automap::autoKrige(formula, ., sp::spTransform(grid, proj)) %>% 
+    `$`("krige_output") %>%
+    slot("data") %>% 
+    dplyr::transmute(interpolated = var1.pred) %>% 
+    sptools::change_data(grid, .)
+}
+```
+
+Note that this function is based on the use of the `autoKrige()` function of the
+`automap` package, which is itself a wrapper around the `variogram()`,
+`fit.variogram()` and `krige()` functions of the `gstat` package in order to
+automate the tuning of hyperparamters when estimating the variogram (see
+[here](https://rpubs.com/nabilabd/118172) for more details). Note also that we
+remove observations that contains missing values and that we project the data
+and the grid as required by the `autoKrige()` function. To use the function
+`kriging` we first need to
+
+* select a given climatic variable of a given month and
+* spatialise these data by merging it with the `stations` object
+
+Of note, since we are using latitude as a covariable in the kriging process, it
+means that we also need to add this variable to the `stations` object:
+
+```{r}
+stations$latitude <- coordinates(stations)[, 2]
+```
+
+Let's consider the average temperature `Ta` for the month of December 2017 as an
+example. As a projection, we will consider the following
+[Universal Transverse Mercator](https://en.wikipedia.org/wiki/Universal_Transverse_Mercator_coordinate_system) (UTM) projection using the
+[World Geodesic System](https://en.wikipedia.org/wiki/World_Geodetic_System) 84
+(WGS84) (with units in meters):
+
+```{r}
+projVN <- "+init=epsg:3405"
+```
+
+See [spatialreference.org](http://spatialreference.org) for more information.
+And here is the interpolation:
+
+```{r}
+interpolated <- meteo %>%
+  filter(year == 2017, month == "December") %>% 
+  select(year, month, station, Ta) %>% 
+  merge(stations, .) %>% 
+  kriging(grid, Ta ~ latitude + elevation, projVN)
+```
+
+Which looks like this:
+
+```{r}
+interpolated
+```
+
+## Aggregation
+
+Now that the interpolation is done, the next step is to perform aggregation.
+For that, we need a function that takes as inputs a grid with interpolated
+values together with a collection of polygons (a `SpatialPolygons*` object) and
+returns aggregated values by polygons. A simple option would be to average
+the interpolated values inside each polygon, which could be done by the following
+function:
+
+```{r}
+simple_aggregation <- function(grid, polygons, var) {
+  sptools::apply_pts_by_poly(grid, polygons, var, mean, na.rm = TRUE)
+}
+```
+
+Let's try it:
+
+```{r}
+(s_agg <- simple_aggregation(interpolated, provinces, "interpolated"))
+```
+
+As explained above, a more sophisticated approach is to incorporate
+weights on the nodes of the grid when doing so. This is particularly relevant
+in epidemiology where we may want to weight the interpolated values of the grid
+using the population size on the nodes of the grid. This is what the following
+function does:
+
+```{r}
+weighted_aggregation <- function(grid, polygons, weights) {
+  require(magrittr)  # %>% 
+  grid %>%
+    sptools::grid2raster() %>% 
+    sptools::split_on_poly(polygons) %>% 
+    purrr::map2(weights, raster::overlay, fun = function(x, y) x * y) %>% 
+    sapply(. %>%     # this could potentially be parallelized.
+             raster::values() %>%
+             sum(na.rm = TRUE))
+}
+```
+
+Note that we could have parallelized the `sapply()` call but we chose not to
+since, ultimately, in the pipeline below, the `weighted_aggregation()` call will be
+inserted into a parallelized loop anyway (the loop over climatic variables and
+months). It appears that to use this function we need to compute the weights.
+The following function computes weights by polygons of the `plgns`
+`SpatialPolygons*` object from the data of the `rstr` `Raster*` object and using
+a grid `grid` (`SpatialPoints*` object):
+
+```{r}
+make_weights <- function(rstr, grid, plgns) {
+  require(magrittr) # %>% 
+  rstr %>%
+    sptools::resample_from_grid(grid) %>% 
+    sptools::split_on_poly(plgns) %>% 
+    parallel::mclapply(sptools::rescale_raster)
+}
+```
+
+Computing weights using the above-computed `grid` of 10,000 nodes takes about
+**2'30''** on a MacBook Pro:
+
+```{r message = FALSE}
+weights <- make_weights(popdensity, grid, provinces)
+```
+
+Now that we have our weigths, we can perform our weighted aggregation:
+
+```{r}
+(w_agg <- weighted_aggregation(interpolated, provinces, weights))
+```
+
+Let's compare these 2 options of aggregation:
+
+```{r}
+plot(w_agg, s_agg, xlab = "weighted aggregation", ylab = "simple aggregation")
+abline(0, 1)
+```
+
+which suggests, not surprisingly, that simple aggregation likely underestimates
+the temperature at the province level.
+
+## Pipeline
+
+Now that we have seen how to apply interpolation and aggregation on one given
+variable of a given month, we can insert these two steps into a pipeline that
+does interpolation-aggregation on all the variables and all the months. The
+pipeline will thus have 3 sections:
+
+* the first section will **split** the data by variable and month;
+* the second section will **apply** interpolation-aggregation to each variable-month
+combination (this step will be parallelized);
+* the third section will **combine** back all the results in the form of a data
+frame.
+
+In order to make this pipeline as **flexible** as possible, let's consider the
+following function
+
+```{r}
+make_2arg_fct <- function(f, ...) {
+  function(x, y) {
+    f(x, y, ...)
+  }
+}
+```
+
+that we will use to create 2-argument functions for the interpolation and
+aggregation steps. For example, we can create a 2-argument interpolation
+function as so:
+
+```{r}
+interpolation <- make_2arg_fct(kriging, value ~ latitude + elevation, projVN)
+```
+
+Note here that the formula is `value ~ latitude + elevation` and not
+`Ta ~ latitude + elevation` as above. This is because, in the pipeline, the
+interpolation step will be inserted into a loop over all the climatic variables.
+Thus the RHS of the formula will have to change depending on the climatic
+variable under consideration. The trick we chose to manage this issue is to always
+call the RHS of the formula simply `value`, which is anyway very easy to specify so
+with the `gather()` call that precedes the interpolation call in the pipeline. 
+Similarly, from what we've seen above, we can make a 2-argument aggregation
+function as so:
+
+```{r}
+aggregation <- make_2arg_fct(simple_aggregation, "interpolated")
+```
+
+or
+
+```{r}
+aggregation <- make_2arg_fct(weighted_aggregation, weights)
+```
+
+Below is an example of the pipeline applied to all the climatic variables of the
+last 2 months of 2017:
+
+```{r}
+out <- meteo %>%
+  filter(year == 2017, month %in% c("November", "December")) %>%
+  mutate_if(is.factor, as.character) %>%
+# I. Prepare the data ----------------------------------------------------------
+  gather(variable, value, -year, -month, -station) %>% # defining "variable" and "value"
+  split(list(.$variable, .$year, .$month)) %>%  # A. SPLIT
+# II. For each month and variable ----------------------------------------------
+  parallel::mclapply(. %>%                      # B. APPLY
+                       merge(stations, .) %>%       # (1) spatialize data
+                       interpolation(grid) %>%      # (2) spatial interpolation
+                       aggregation(provinces)) %>%  # (3) spatial aggregation
+# III. Put results into shape --------------------------------------------------
+  data.frame() %>%                              # C. COMBINE
+  cbind(province = provinces$VARNAME_1, .) %>%
+  gather("key", "value", -province) %>%
+  separate(key, c("variable", "year", "month")) %>%
+  spread(variable, value) %>%
+  mutate(year  = as.integer(year),
+         month = factor(month, month.name, ordered = TRUE)) %>% 
+  arrange(year, province, month)
+```
+
+The `merge()` call is here included inside the loop but note that, in principle,
+it could have been included outside the loop. The reason we included it inside
+the loop is because it's more efficient memory-wise this way. Note also that our
+strategy here is to use the
+[split-apply-combine](https://www.jstatsoft.org/article/view/v040i01) scheme
+which offers the advantage that the apply step be easily **parallelized** with the
+`mclapply()` function of the `parallel` package. This function is not working on
+Windows though so Windows user will either have to use the `base::apply()`
+function instead or to parallelize the code by other means that are Windows
+compliant. The `group_by()`-`mutate()`-`ungroup()` from the
+`dplyr` package applies the
+[split-apply-combine](https://www.jstatsoft.org/article/view/v040i01) strategy
+to a data frame. Feel free to try it here. Note also that the 
+[multidplyr](https://github.com/hadley/multidplyr) package offers ways to
+parallelize this. One option in particular is simply to replace
+`dplyr::group_by()` by `multidplyr::partition()` and `dplyr::ungroup()` by
+`multidplyr::collect()`. There are other options where the user can finely
+manage the clusters. Feel free to try this too. See
+[here](http://blog.aicry.com/multidplyr-dplyr-meets-parallel-processing/index.html)
+for more information on the `multidplyr` package.
+
+### Post-calculation checks
+
+Since there is no constraint in the interpolation algorithm, it's possible that
+the pipeline produces aberrant values such as negative humidities or relative
+humidities above 100. Luckily this happens quite rarely. But, still, these
+mistakes need to be fixed:
+
+```{r}
+out2 <- out %>%
+  mutate(rH = ifelse(rH > 100, 100, rH)) %>% 
+  mutate_at(vars(aH, rH, Rf, Sh), funs(ifelse(. < 0, 0, .)))
+```
+
+It appears that rainfall is a variable particularly difficult to interpolate.
+One reason for that is that this variable varies a lot in space and that our
+network climatic stations contains too few of them to render such a variation.
+In such conditions, the best we can do is look for **outliers** among the
+interpolated-aggregated rainfall values, replace them by missing values and
+perform **missing values inputation** to replace them. This will be the topic of
+another post.
+
+### A script
+
+Below we put together a script that could be run independently:
+
+```{r eval = FALSE}
+# Parameters -------------------------------------------------------------------
+proj <- "+init=epsg:3405"
+nbcells <- 10000
+kriging_model <- value ~ latitude + elevation
+weighted <- TRUE
+
+
+# The packages -----------------------------------------------------------------
+installed <- row.names(installed.packages())
+cran <- c("automap", "devtools", "parallel", "purrr", "sf", "sp", "raster", "tidyr", "dplyr")
+gh <- paste0("choisy/", c("imhen", "srtmVN", "mcutils", "sptools", "worldpopVN"))
+cran2 <- setdiff(cran, installed)
+gh2 <- setdiff(gh, installed)
+if (length(cran2) > 0) install.packages(cran2)
+if (length(gh2) > 0) devtools::install_github(gh2)
+for(pkg in c("sf", "sp", "raster", "sptools", "mcutils", "tidyr", "dplyr")) library(pkg)
+
+
+# The data ---------------------------------------------------------------------
+obj <- ls()
+if (! "meteo" %in% obj) meteo <- imhen::meteo
+if (! "stations" %in% obj) {
+  stations <- as(imhen::stations, "Spatial")
+  stations$latitude <- coordinates(stations)[, 2]
+}
+if (! "country" %in% obj) country <- gadm("vietnam", "sp", 0)
+if (! "provinces" %in% obj) provinces <- gadm("vietnam", "sp", 1)
+if (! "elevation" %in% obj) elevation <- srtmVN::getsrtm()
+if (! "popdensity" %in% obj) popdensity <- worldpopVN::getpop()
+
+
+# Utilitary functions ----------------------------------------------------------
+make_grid <- function(plgn, rstr, var, n, ...) {
+  require(magrittr) # %>% 
+  plgn %>%
+    sptools::make_grid(n, ...) %>%
+    sptools::add_from_raster(rstr, var) %>%
+    sptools::add_variable_spdf(., data.frame(latitude = coordinates(.)[, 2]))
+}
+
+make_weights <- function(rstr, grid, plgns) {
+  require(magrittr) # %>% 
+  rstr %>%
+    sptools::resample_from_grid(grid) %>% 
+    sptools::split_on_poly(plgns) %>% 
+    parallel::mclapply(sptools::rescale_raster)
+}
+
+make_2arg_fct <- function(f, ...) {
+  function(x, y) {
+    f(x, y, ...)
+  }
+}
+
+kriging <- function(points, grid, formula, proj) {
+  require(magrittr) # %>%
+  points %>%
+    sptools::na_exclude() %>% 
+    sp::spTransform(proj) %>% 
+    automap::autoKrige(formula, ., sp::spTransform(grid, proj)) %>% 
+    `$`("krige_output") %>%
+    slot("data") %>% 
+    dplyr::transmute(interpolated = var1.pred) %>% 
+    sptools::change_data(grid, .)
+}
+
+simple_aggregation <- function(grid, polygons, var) {
+  sptools::apply_pts_by_poly(grid, polygons, var, mean, na.rm = TRUE)
+}
+
+weighted_aggregation <- function(grid, polygons, weights) {
+  require(magrittr)  # %>% 
+  grid %>%
+    sptools::grid2raster() %>% 
+    sptools::split_on_poly(polygons) %>% 
+    purrr::map2(weights, raster::overlay, fun = function(x, y) x * y) %>% 
+    sapply(. %>%     # this could potentially be parallelized.
+             raster::values() %>%
+             sum(na.rm = TRUE))
+}
+
+
+# Preparing --------------------------------------------------------------------
+grid <- make_grid(country, elevation, "elevation", nbcells)
+weights <- make_weights(popdensity, grid, provinces)
+interpolation <- make_2arg_fct(kriging, kriging_model, proj)
+if (weighted)
+  aggregation <- make_2arg_fct(weighted_aggregation, weights)
+else
+  aggregation <- make_2arg_fct(simple_aggregation, "interpolated")
+
+
+# Calculations -----------------------------------------------------------------
+out <- meteo %>%
+  mutate_if(is.factor, as.character) %>%
+# I. Prepare the data ----------------------------------------------------------
+  gather(variable, value, -year, -month, -station) %>% # defining "variable" and "value"
+  split(list(.$variable, .$year, .$month)) %>%
+# II. For each month and variable ----------------------------------------------
+  parallel::mclapply(. %>%
+                       merge(stations, .) %>%       # (1) spatialize data
+                       interpolation(grid) %>%      # (2) spatial interpolation
+                       aggregation(provinces)) %>%  # (3) spatial aggregation
+# III. Put results into shape --------------------------------------------------
+  data.frame() %>%
+  cbind(province = provinces$VARNAME_1, .) %>%
+  gather("key", "value", -province) %>%
+  separate(key, c("variable", "year", "month")) %>%
+  spread(variable, value) %>%
+  mutate(year  = as.integer(year),
+         month = factor(month, month.name, ordered = TRUE)) %>% 
+  arrange(year, province, month) %>% 
+  mutate(rH = ifelse(rH > 100, 100, rH)) %>% 
+  mutate_at(vars(aH, rH, Rf, Sh), funs(ifelse(. < 0, 0, .)))
+```
+
