@@ -2,6 +2,7 @@ public/
 content/post/*.html
 content/post/*_cache/*
 content/post/*_files/*
+content/post/*_images/*
 static/*
 .Rproj.user
 .Rproj.user/*
