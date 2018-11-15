@@ -5,3 +5,4 @@ content/post/*.html
 .RData
 .Rhistory
 material/*
+*.DS_Store
