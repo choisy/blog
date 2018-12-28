@@ -1,0 +1,10 @@
+---
+title: Statistical temporal downscaling
+author: Marc Choisy
+date: '2018-12-28'
+slug: statistical-temporal-downscaling
+categories:
+  - R
+  - downscaling
+tags: []
+---
