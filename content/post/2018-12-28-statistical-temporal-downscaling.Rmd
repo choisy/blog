@@ -150,12 +150,12 @@ point through which to make our linear model go through. Let's call `y2_0` the
 value for `y2_0`. However, in order to meet our second constraint, let's instead
 consider applying an **optimization algorithm** in order to find the `y2_0` that 
 makes the transitions between intervals as smooth as possible. For that, let's
-define **smoothness** as the sum of the absolute differences between the slopes
+define **unsmoothness** as the sum of the absolute differences between the slopes
 of adjacent linear models. The following function computes such a statistic from
 a list of linear models:
 
 ```{r}
-smoothness <- function(list_of_models) {
+unsmoothness <- function(list_of_models) {
   require(magrittr)
   list_of_models %>% 
     sapply(get_slope) %>%
@@ -190,10 +190,10 @@ make_models <- function(y2_0) {
 ```
 
 As we can see, this funtion returns a list of models that we can then feed to
-`smoothness()` in order to find the value of smoothness that corresponds to our
-choice of `y2_0`. And the combination of `make_models()` and `smoothness()` can
+`unsmoothness()` in order to find the value of unsmoothness that corresponds to our
+choice of `y2_0`. And the combination of `make_models()` and `unsmoothness()` can
 be used by the base R `optimize()` function in order to find the optimal value
-of `y2_0` over a given interval that minimize the global smoothness. The problem
+of `y2_0` over a given interval that minimize the unsmoothness. The problem
 now is to define the interval to search in. An option could be given by the
 following function:
 
@@ -208,7 +208,7 @@ that basically triples the range of a variable equally each side of its current
 range. We can now look for the optimal value of `y2_0` by the following call:
 
 ```{r eval = FALSE}
-optimize(function(x) smoothness(make_models(x)), make_interval(y))$minimum
+optimize(function(x) unsmoothness(make_models(x)), make_interval(y))$minimum
 ```
 
 Once we have our optimal linear models on each of our intervals, the last step
@@ -273,9 +273,9 @@ downscale <- function(y, x, n) {
     models
   }
 
-# Using the function `smoothness()` to find the best `y2_0` value:
+# Using the function `unsmoothness()` to find the best `y2_0` value:
   best_y2_0 <- optimize(
-    function(x) smoothness(make_models(x)),
+    function(x) unsmoothness(make_models(x)),
     make_interval(y)
   )$minimum
 
