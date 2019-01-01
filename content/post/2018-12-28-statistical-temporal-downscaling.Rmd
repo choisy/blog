@@ -198,17 +198,18 @@ now is to define the interval to search in. An option could be given by the
 following function:
 
 ```{r}
-make_interval <- function(x) {
-  the_range <- range(x)
-  c(-1, 1) * diff(the_range) + the_range
+range2 <- function(..., n = 1, na.rm = FALSE) {
+  the_range <- range(..., na.rm = na.rm)
+  n * c(-1, 1) * diff(the_range) / 2 + mean(the_range)
 }
 ```
 
-that basically triples the range of a variable equally each side of its current
-range. We can now look for the optimal value of `y2_0` by the following call:
+that is basically a wrapper around the base R function `range()` that allows to
+reduce or expand the range. We can now look for the optimal value of `y2_0` by
+the following call:
 
 ```{r eval = FALSE}
-optimize(function(x) unsmoothness(make_models(x)), make_interval(y))$minimum
+optimize(function(x) unsmoothness(make_models(x)), range2(y, n = 3))$minimum
 ```
 
 Once we have our optimal linear models on each of our intervals, the last step
@@ -221,7 +222,7 @@ middles of `n` equal-duration sub-intervals, the `x` coordinates of these points
 can be computed by the following function:
 
 ```{r}
-make_new_x <- function(x, n) {
+subsegment_center <- function(x, n) {
   the_centers <- centers(x, TRUE)
   bys <- diff(the_centers) / n
   Map(seq, from = the_centers[seq_along(x)] + bys / 2, by = bys, le = n)
@@ -238,7 +239,7 @@ the  infered `y` values:
 ```{r eval = FALSE}
 unlist(Map(predict,
            models,
-           lapply(make_new_x(x, n), function(x) data.frame(x_val = x))))
+           lapply(subsegment_center(x, n), function(x) data.frame(x_val = x))))
 ```
 
 Note that the elements of the list outputed from `make_new_x()` are converted
@@ -276,7 +277,7 @@ downscale <- function(y, x, n) {
 # Using the function `unsmoothness()` to find the best `y2_0` value:
   best_y2_0 <- optimize(
     function(x) unsmoothness(make_models(x)),
-    make_interval(y)
+    range2(y, n = 3)
   )$minimum
 
 # Generating the list of models with the best `y2_0` value:
@@ -284,7 +285,7 @@ downscale <- function(y, x, n) {
   
 # Now that everything is ready:
   x %>%
-    make_new_x(n) %>% 
+    subsegment_center(n) %>% 
     lapply(function(x) data.frame(x_val = x)) %>% 
     Map(predict, models, .) %>% 
     unlist()
@@ -310,7 +311,7 @@ the_centers <- centers(x, TRUE)
 And the `x` coordinates of the infered values will be
 
 ```{r}
-new_x <- unlist(make_new_x(x, n))
+new_x <- unlist(subsegment_center(x, n))
 ```
 
 Let's start with a simple example where the initial aggregate data are values
@@ -366,4 +367,13 @@ complexified in basically 2 non-incompatible directions: adding dimensions
 models. The latter can be done either by still considering statistical models
 such as spline smoothing for example, or by considering mechanistical
 (dynamical) models. The second option will provide a less general tool and will
-require some domain knowledge.
+require some domain knowledge. The functions `centers()`, `range2()`, 
+`subsegment_center()` and `downscale()` are available in the package 
+[`mcstats`](https://github.com/choisy/mcstats). To install it locally, just
+type:
+
+```{r eval = FALSE}
+# install.packages("devtools")
+devtools::install_github("choisy/mcstats")
+```
+
