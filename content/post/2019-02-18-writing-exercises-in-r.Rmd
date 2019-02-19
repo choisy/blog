@@ -1,0 +1,351 @@
+---
+title: Writing exercises in R
+author: Marc Choisy
+date: '2019-02-18'
+slug: writing-exercises-in-r
+categories:
+  - R
+  - Teaching
+tags: []
+editor_options: 
+  chunk_output_type: console
+---
+
+The **literate programming** ability of Rmarkdown makes it a great language for
+**reproducible research**. It is also used for many other applications (such as
+writing books, websites, blogs, apps, etc...). One of them that I've found
+particularly useful is for teaching, when the tutor needs to write exercises of
+which (s)he wants to control the visibility of the solutions in a way or another.
+
+Here I list 3 options that I've found particularly useful. The first one makes
+use of the `include` **chunk option** of the Rmarkdown file and allows the tutor
+to control whether the solutions will be visible or not (the options have to be
+set before the compilation of the Rmarkdown document into HTML). The second
+option makes use of the `code_folding` option of the **YAML header** of the
+Rmarkdown document and leaves the control of the solutions visibility to the
+student. By default, all the R code will be either visible or hidden (depending
+on the value of the `code_folding` option in the YAML header), but all the R
+code will necessarily have the same default option. If one is interested in
+having some R code that is always visible and some other chunks of R code that
+is hidden but could be shown by the user, then the third option making use of 
+**JavaScript** would do the job. The insertion of JavaScript code in the
+Rmarkdown file is the most flexible solution that allows to hide any number of
+lines (not necessarily R chunks). However, compared to the 2 previous options,
+in case an R code chunk is hidden, it will also hide the output of this R code
+chunk (whereas it remains visible for the first 2 options). The table below
+recaps the different characteristics of the 3 options.
+
+Method       | Control | Default | Which       | Hidden output 
+------------ | ------- | ------- | ----------- | -------------
+chunk option | tutor   | NA      | any R chunk | no
+YAML header  | tutor   | any     | all R chunk | no
+JavaScript   | student | hidden  | any line    | yes
+
+The way I work as a tutor is that I write the Rmarkdown document, then compile
+it to an HTML document that I host on a web server (for example 
+[RPubs](http://rpubs.com)), of which I provide the URL to the student. Links to
+examples and templates are also provided below.
+
+## Option 1: the tutor controls the visibility of the solutions
+
+When I, as the tutor, want to keep full control of the visibility of the 
+solution, I do it thanks to the chunk option `include` of the R code chunks of
+the Rmarkdown document. For example, the following Rmarkdown code:
+
+````markdown
+**Exercise 1:** Define `x` and `y` vectors as below
+`r ''````{r exercise_1}
+set.seed(123523458)
+x <- 1:10
+y <- sample(x)
+```
+and plot `y` as a function of `x`.
+
+**Solution to Exercise 1:**
+`r ''````{r solution_1, include = FALSE}
+plot(x, y)
+```
+````
+
+will produce the following HTML output where the solution is not visible:
+
+**Exercise 1:** Define `x` and `y` vectors as below
+```{r}
+set.seed(123523458)
+x <- 1:10
+y <- sample(x)
+```
+and plot `y` as a function of `x`.
+
+**Solution to Exercise 1:**
+```{r solution_1, include = FALSE}
+plot(x, y)
+```
+
+Now, if I decide to show the solution, I just have to switch the `include`
+chunck option from `FALSE` to `TRUE`:
+
+````markdown
+**Exercise 1:** Define `x` and `y` vectors as below
+`r ''````{r exercise_1}
+set.seed(123523458)
+x <- 1:10
+y <- sample(x)
+```
+and plot `y` as a function of `x`.
+
+**Solution to Exercise 1:**
+`r ''````{r solution_1, include = TRUE}
+plot(x, y)
+```
+````
+
+which produces the following HTML output after recompilation:
+
+**Exercise 1:** Define `x` and `y` vectors as below
+```{r exercise_1}
+set.seed(123523458)
+x <- 1:10
+y <- sample(x)
+```
+and plot `y` as a function of `x`.
+
+**Solution to Exercise 1:**
+```{r include = TRUE}
+plot(x, y)
+```
+
+Et voilà!
+
+### Showing several solutions at once
+
+You may have several exercises, each with its solution. If you decide to show
+several solutions at once, all you have to do is define a boolean variable and
+use the value of this variable for the value of the `include` option of all the
+chuncks you want to control the same way. Good practice is to define the boolean 
+variable in a chunk at the beginning of the Rmarkdown document that contains all
+the settings of the document. Here is an example:
+
+````markdown
+`r ''````{r settings, include = FALSE}
+switch1 <- FALSE
+```
+
+**Exercise 1:** Define `x` and `y` vectors as below
+`r ''````{r exercise_1}
+set.seed(123523458)
+x <- 1:10
+y <- sample(x)
+```
+and plot `y` as a function of `x`.
+
+**Solution to Exercise 1:**
+`r ''````{r solution_1, include = switch1}
+plot(x, y)
+```
+
+**Exercise 2:** Make a linear model `y` as a function of `x`.
+
+**Solution to Exercise 2:**
+`r ''````{r solution_2, include = switch1}
+model <- lm(y ~ x)
+```
+
+**Exercise 3:** Make a plot of `y` as a function of `x`, together with the 
+linear model
+
+**Solution to Exercise 3:**
+`r ''````{r solution_3, include = FALSE}
+plot(x, y)
+abline(model)
+```
+````
+
+That produces the following HTML output:
+
+
+```{r settings, include = FALSE}
+switch1 <- FALSE
+```
+
+**Exercise 1:** Define `x` and `y` vectors as below
+```{r}
+set.seed(123523458)
+x <- 1:10
+y <- sample(x)
+```
+and plot `y` as a function of `x`.
+
+**Solution to Exercise 1:**
+```{r, include = switch1}
+plot(x, y)
+```
+
+**Exercise 2:** Make a linear model `y` as a function of `x`.
+
+**Solution to Exercise 2:**
+```{r solution_2, include = switch1}
+model <- lm(y ~ x)
+```
+
+**Exercise 3:** Make a plot of `y` as a function of `x`, together 
+with the linear model
+
+**Solution to Exercise 3:**
+```{r solution_3, include = FALSE}
+plot(x, y)
+abline(model)
+```
+
+where none of the solutions is displayed. If you want to show 
+solutions to exercises 1 and 2 all at once, all you have to do is 
+change the value of the `switch1` boolean variable in the settings
+chunk as so:
+
+````markdown
+`r ''````{r settings, include = FALSE}
+switch1 <- TRUE
+```
+````
+
+Now, when you recompile the document, the HTML output looks like:
+
+```{r include = FALSE}
+switch1 <- TRUE
+```
+
+**Exercise 1:** Define `x` and `y` vectors as below
+```{r}
+set.seed(123523458)
+x <- 1:10
+y <- sample(x)
+```
+and plot `y` as a function of `x`.
+
+**Solution to Exercise 1:**
+```{r, include = switch1}
+plot(x, y)
+```
+
+**Exercise 2:** Make a linear model `y` as a function of `x`.
+
+**Solution to Exercise 2:**
+```{r include = switch1}
+model <- lm(y ~ x)
+```
+
+**Exercise 3:** Make a plot of `y` as a function of `x`, together 
+with the linear model
+
+**Solution to Exercise 3:**
+```{r include = FALSE}
+plot(x, y)
+abline(model)
+```
+
+where the solutions to both exercises 1 and 2 are displayed but not 
+the solution to exercise 3.
+
+## Option 2: the student can unhide the solution him(her)self
+
+If seeing the solution of the exercises is let to the student's decision, then
+you can opt for an interactive HTML document, using the `code_folding` option of
+the YAML header of the Rmarkdown document, as so:
+
+````markdown
+---
+title: "R exercises"
+output:
+  html_document:
+    code_folding: hide
+---
+````
+
+Note that here, we've even set the `code_folding` option to the `hide` value
+which means that, by default, the R code of all the chunks will be hidden and
+the user can decide to reveal all or each of them separately. If the
+`code_folding` was set to `show` instead, then, by default, the R code of all
+the chunks will have been visible and the user could have decided to hide them,
+again, all of them at once, or each of them separately. An example of the first
+option (`code_folding: hide`) is visible
+[here](http://rpubs.com/choisy/code_folding_hide) (with source code
+[here](http://bit.ly/codefoldinghide)) and an example of the second option
+(`code_folding: show`) is visible
+[here](http://rpubs.com/choisy/code_folding_show) (with source code
+[here](http://bit.ly/codefoldingshow)). Note by the way that the output of the
+R code chunks are never hidden.
+
+## Option 3: flexibility with JavaScript
+
+Because option 2 makes use of an option of the YAML header of the Rmarkdown
+document, it is impossible to define different behaviors on different R code
+chunks. As of February 2019, the only way to the combine user control of option
+2 with the by-chunk definition of option 1 is to make use of JavaScript code in
+the Rmarkdown document as suggested
+[here](https://stackoverflow.com/questions/37755037/how-to-add-code-folding-to-output-chunks-in-rmarkdown-html-documents/37839683#37839683)
+(it seems that an Rmarkdown solution to do so is under development at the moment).
+What you have to do is
+
+#### 1. include the following javascript code at the end of the Rmarkdown document:
+
+```{js eval = FALSE}
+<script>
+  $(".toggle").click(function() {
+    $(this).toggleClass("open");
+  });
+</script>
+```
+
+#### 2. write a CCS file that contains the following CSS code:
+
+```{css eval = FALSE}
+.toggle {
+  height: 1.55em;
+  overflow-y: hidden;
+}
+.toggle.open {
+  height: auto;
+}
+```
+
+This CCS code defines the style of the button. In this example, let's call
+this file `styles.css` and make a link to it in the YAML header of the 
+Rmarkdown document:
+
+````markdown
+---
+title: "R exercises"
+output:
+  html_document:
+    css: styles.css
+---
+````
+
+#### 3. add buttons to your code wherever needed as so:
+
+````markdown
+**Exercise 1:** Define `x` and `y` vectors as below
+```{r}
+set.seed(123523458)
+x <- 1:10
+y <- sample(x)
+```
+and plot `y` as a function of `x`.
+
+<div class="toggle"><button>Solution</button>
+`r ''````{r}
+plot(x, y)
+```
+</div><br>
+````
+
+The above example includes a button that, when clicked on, shows the R code
+`plot(x, y)` together with its output. (Note that it is a slightly different
+behaviour from what we had with the YAML `code_folding` option where only the R
+code was hidden, not its output). See an example 
+[here](http://rpubs.com/choisy/code_folding_js) and its source code
+[here](http://bit.ly/codefoldingjs) for which the corresponding CSS file is
+[here](http://bit.ly/foldingcodecss) and should be saved in a file named
+`styles.css` in the save directory as the Rmarkdown file before compilation.
+Note also that the buttons could braket any lines, these lines containing chunks 
+or simply text, or actually anything.
