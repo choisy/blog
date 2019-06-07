@@ -35,11 +35,11 @@ in case an R code chunk is hidden, it will also hide the output of this R code
 chunk (whereas it remains visible for the first 2 options). The table below
 recaps the different characteristics of the 3 options.
 
-Method       | Control | Default | Which       | Hidden output 
------------- | ------- | ------- | ----------- | -------------
-chunk option | tutor   | NA      | any R chunk | no
-YAML header  | tutor   | any     | all R chunk | no
-JavaScript   | student | hidden  | any line    | yes
+  Method         |   Control   | Default   |   Which         |   Hidden output 
+---------------- | ----------- | --------- | --------------- | -----------------
+  chunk option   |   tutor     | NA        |   any R chunk   |   no
+  YAML header    |   tutor     | any       |   all R chunk   |   no
+  JavaScript     |   student   | hidden    |   any line      |   yes
 
 The way I work as a tutor is that I write the Rmarkdown document, then compile
 it to an HTML document that I host on a web server (for example 
