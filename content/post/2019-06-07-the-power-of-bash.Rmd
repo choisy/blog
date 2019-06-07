@@ -1,0 +1,66 @@
+---
+title: The power of bash
+author: Marc Choisy
+date: '2019-06-07'
+slug: the-power-of-bash
+categories:
+  - bash
+tags: []
+editor_options: 
+  chunk_output_type: console
+---
+
+Very often I remember the name of the R function I need to use for a particular
+problem but I don't quite remember how to use it exactly... And, even worse,
+what I remember is that last time I had to use this function it took me a long
+time to figure out how to use it... Since I'm not ready to go through that
+learning process again, I decide to look for the R script on my computer that
+did make use of this function. And here comes the power of `bash`! (if you have
+bash on your computer, of course...). Well, to be more precise, I actually
+refering to the particular `find` and `grep` commands here that can be used in
+`bash` of course (if you're on linux or macos), but also in any other UNIX-type
+shell. Let's demonstrate its power, using my specific example.
+
+The R function I wanted to use was `sf::st_simplify()`. I knew I used it
+recently (in the last 2 months) in an Rmarkdown file, but I couldn't remember
+which one. Looking for all the Rmarkdown files in the current file hierarchy is
+done by
+
+```{r engine = "bash", eval = FALSE}
+find ~/Dropbox/aaa -name "*.Rmd" -mtime -10w -type f
+```
+
+The `find` command is followed by the path of the location where we want to
+start the file search (here `~/Dropbox/aaa`). Then it is followed by a number of
+options specified by pairs of options names (preceded by the `-` sign) followed
+by the option value. For example, here `-name "*.Rmd"` specifies that we are
+looking for files with names ending with the `.Rmd` extension, `-mtime -10w`
+means that we are looking at files that were modified less than 10 weeks ago and
+`-type f` means that we are looking at regular files (excluding directories,
+links, etc...). If we had been interested in file that were modified more than
+3 months ago instead of less than 10 weeks ago, that would have been specified
+by `-mtime +3m`. Among these options, one is particularly amazing in the sense
+that it allows to run another command on the files that were selected. This
+option is `-exec` and is followed by the command we want to run. For example,
+here, I want to search for the `st_simplify` pattern in the selected files:
+
+```{r engine = "bash", eval = FALSE}
+find ~/Dropbox/aaa -name "*.Rmd" -mtime -10w -type f -exec grep -n "st_simplify" {} \;
+```
+
+Here it says that, on each of the files that were selected by the first part of
+the `find` command (this files are here specified by the `{}` placeholder), we
+want to execute the `grep` command (with the -n option in order to also print
+the line number where the pattern was found in the file). Don't forget here the
+`\;` sign that closes the value of the `-exec` option. Indeed, contrary to the
+other options of the `find` command that have, as a value, only one "word" (i.e.
+character string without any space), the `-exec` may have (and typically have)
+many words as its value. Thus, the value of the `-exec` command is all the words
+that are between `exec` and `\;`. Adding the `-print` option (no value) will have
+the effect to print the name of the file where the pattern was found:
+
+```{r engine = "bash", eval = FALSE}
+find ~/Dropbox/aaa -name "*.Rmd" -mtime -10w -type f -exec grep -n "st_simplify" {} \; -print
+```
+
+And here it is!
