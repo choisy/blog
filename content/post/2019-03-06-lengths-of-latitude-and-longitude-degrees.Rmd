@@ -1,0 +1,86 @@
+---
+title: Lengths of latitude and longitude degrees
+author: Marc Choisy
+date: '2019-03-06'
+slug: lengths-of-latitude-and-longitude-degrees
+categories:
+  - R
+  - spatial
+tags: []
+editor_options: 
+  chunk_output_type: console
+---
+
+In geography or spatial analyses, it is common that lengths are expressed in
+degree (minutes, seconds) instead of meter or km as we are more used to.
+Because of the spheroidal shape of the earth, the length in km of one degree of
+latitude or longitude depends on the latitude of the location. Formulas to do
+the conversion are available [here](https://gis.stackexchange.com/questions/75528/understanding-terms-in-length-of-degree-formula) that we use below.
+
+The length of 1 degree of latitude in km, in function of the latitude `x` in
+decimal degree is given by the following function:
+
+```{r}
+latitude_length <- function(x) {
+  x <- pi * x / 180
+  (111132.92 - 559.82 * cos(2 * x) + 1.175 * cos(4 * x) - .0023 * cos(6 * x)) / 1000
+}
+```
+
+let's generate a vector of latitude values between the equator and the north
+pole:
+
+```{r}
+latitudes <- seq(0, 90, le = 512)
+```
+
+We can verify that the length of 1 degree of latitude varies very little between
+the equator and the north pole:
+
+```{r}
+range(latitude_length(latitudes))
+```
+
+this is because the shape of the earth is very close to be spherical. Now, let's
+look at the length in km of 1 degree of longitude as a function of the latitude
+`x` in decimal degree, which is given by the following function:
+
+```{r}
+longitude_length <- function(x) {
+  x <- pi * x / 180
+  (111412.84 * cos(x) - 93.5 * cos(3 * x) + .118 * cos(5 * x)) / 1000
+}
+```
+
+let's use this function to plot the length of 1 degree of longitude as a 
+function of the latitude:
+
+```{r}
+plot(longitude_length(latitudes), latitudes, type = "l",
+     xlab = "length of 1° of longitude (km)",
+     ylab = "latitude (°)",
+     xlim = c(0, 120),
+     ylim = c(0, 100))
+```
+
+We can thus verify that a cell close to the equator is almost of square shape 
+and becomes more and more triangular as we get closer to the north pole. To
+finish, let's have a look at the variation of the length of 1 degree of 
+longitude in the intertropical zone:
+
+```{r}
+tropics <- seq(0, 23.43682, le = 512)
+range(longitude_length(tropics))
+```
+
+And in Vietnam:
+
+```{r}
+vietnam <- seq(8.563512, 23.392651, le = 512)
+range(longitude_length(vietnam))
+```
+
+
+
+
+
