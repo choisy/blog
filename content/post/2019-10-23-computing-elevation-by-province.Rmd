@@ -1,0 +1,442 @@
+---
+title: Computing elevation by province
+author: Marc Choisy
+date: '2019-10-23'
+slug: computing-elevation-by-province
+categories:
+  - R
+  - spatial
+tags: []
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r general options, include = FALSE}
+knitr::knit_hooks$set(
+  margin = function(before, options, envir) {
+    if (before) par(mgp = c(1.5, .5, 0), bty = "n", plt = c(.105, .97, .13, .97))
+    else NULL
+  })
+
+knitr::opts_chunk$set(cache = TRUE, autodep = TRUE, message = FALSE, warning = FALSE,
+                      dev.args = list(pointsize = 11), fig.height = 3.5,
+                      fig.width = 4.24725, fig.retina = 2, fig.align = "center")
+
+# options(width = 137)
+```
+
+## Introduction
+
+Here we show how to compute 2 different measures of elevation by province. The
+first one is the simple mean of the elevation measures inside the polygon of the
+province. The second one weights the mean by the local population density. For
+that, we use the polygons of the country and the provinces from
+[GADM](https://gadm.org), the SRTM raster elevation data from
+[CGIAR](http://srtm.csi.cgiar.org) and raster population density data from
+[WorldPop](https://www.worldpop.org).
+
+## Packages
+
+```{r}
+library(sp)
+library(raster)
+```
+
+## Simple mean
+
+Let's downlaod the elevation data (751.5 MB) from
+[SRTM](http://srtm.csi.cgiar.org):
+
+```{r eval = FALSE, include = FALSE}
+download.file("http://srtm.csi.cgiar.org/wp-content/uploads/files/srtm_30x30/TIFF/N00E090.zip", "content/post/srtm.zip")
+```
+
+```{r eval = FALSE}
+download.file("http://srtm.csi.cgiar.org/wp-content/uploads/files/srtm_30x30/TIFF/N00E090.zip", "srtm.zip")
+```
+
+Let's unzip it (making a file of 2.4 GB):
+
+```{r eval = FALSE, include = FALSE}
+unzip("content/post/srtm.zip", exdir = "content/post")
+```
+
+```{r eval = FALSE}
+unzip("srtm.zip")
+```
+
+And load it into R:
+
+```{r eval = FALSE, include = FALSE}
+srtm <- raster("content/post/cut_n00e090.tif")
+```
+
+```{r}
+srtm <- raster("cut_n00e090.tif")
+```
+
+which gives
+
+```{r}
+srtm
+```
+
+Note that the CRS is not defined... However, from 
+[here](https://cgiarcsi.community/data/srtm-90m-digital-elevation-database-v4-1)
+we can see that *"The data is projected in a Geographic (Lat/Long) projection,
+with the WGS84 horizontal datum and the EGM96 vertical datum."* Let's thus
+define this projection:
+
+```{r}
+crs(srtm) <- CRS("+init=EPSG:4326")
+```
+
+Let's check:
+
+```{r}
+srtm
+```
+
+We're good! This file is quite big and we need the data only for Vietnam. We
+thus want to crop it. For that we need the polygon of Vietnam that we can
+download from [GADM](https://gadm.org):
+
+```{r eval = FALSE, include = FALSE}
+download.file("https://biogeo.ucdavis.edu/data/gadm3.6/Rsp/gadm36_VNM_0_sp.rds", "content/post/country.rds")
+```
+
+```{r eval = FALSE}
+download.file("https://biogeo.ucdavis.edu/data/gadm3.6/Rsp/gadm36_VNM_0_sp.rds", "country.rds")
+```
+
+Lets load it:
+
+```{r eval = FALSE, include = FALSE}
+country <- readRDS("content/post/country.rds")
+```
+
+```{r}
+country <- readRDS("country.rds")
+```
+
+Which gives:
+
+```{r}
+country
+```
+
+We can see that this time the CRS is correctly defined and that it is the same
+projection as for the SRTM raster file. Let's plot the elevation data together
+with the country polygon:
+
+```{r}
+plot(srtm)
+plot(country, add = TRUE)
+```
+
+Let's now use the country polygon to crop the raster file. Note that this can be
+done only because the 2 objects have the same projection. If it were not the
+case, we would need to reproject one of them according to the projection of the
+other, using the `sp::spTranform()` function. It takes about 15''.
+
+```{r}
+srtm_cropped <- crop(srtm, country)
+```
+
+Let's write the output to disk:
+
+```{r eval = FALSE, include = FALSE}
+writeRaster(srtm_cropped, "content/post/srtm_cropped.tif")
+```
+
+```{r include = FALSE}
+writeRaster(srtm_cropped, "srtm_cropped.tif", overwrite = TRUE)
+```
+
+```{r eval = FALSE}
+writeRaster(srtm_cropped, "srtm_cropped.tif")
+```
+
+Let's reload it:
+
+```{r eval = FALSE, include = FALSE}
+srtm_cropped <- raster("content/post/srtm_cropped.tif")
+```
+
+```{r}
+srtm_cropped <- raster("srtm_cropped.tif")
+```
+
+Let's see the result:
+
+```{r}
+plot(srtm_cropped)
+plot(country, add = TRUE)
+```
+
+We can see that the cropped_version of the GeoTiff object is reduced from 2.4 GB
+down to 194.6 MB:
+
+```{r}
+file.size(filename(srtm)) / 2^30
+```
+
+and:
+
+```{r}
+file.size(filename(srtm_cropped)) / 2^20
+```
+
+Noticing that in this rectangular, we acutally need only a small portion of the
+pixels, we can go a step further in reducing the data by applying a mask. For
+that, we first need to create a mask by basically rasterizing the polygon using
+the same grid as the raster object. Note however that this step takes about 26', 
+essentially because the size of the polygon is big. Given that, we'll see at the
+end of this section that this step is actually not necessary.
+
+```{r eval = FALSE}
+country_mask <- rasterize(country, srtm_cropped)
+```
+
+```{r eval = FALSE, include = FALSE}
+writeRaster(country_mask, "content/post/country_mask.tif")
+```
+
+```{r include = FALSE}
+country_mask <- raster("country_mask.tif")
+```
+
+Now that the mask is done, we can use it on the cropped raster:
+
+```{r}
+srtm_masked <- mask(srtm_cropped, country_mask)
+```
+
+Let's save to disk and reload:
+
+```{r eval = FALSE, include = FALSE}
+writeRaster(srtm_masked, "content/post/srtm_masked.tif")
+srtm_masked <- raster("content/post/srtm_masked.tif")
+```
+
+```{r include = FALSE}
+writeRaster(srtm_masked, "srtm_masked.tif", overwrite = TRUE)
+srtm_masked <- raster("srtm_masked.tif")
+```
+
+```{r eval = FALSE}
+writeRaster(srtm_masked, "srtm_masked.tif")
+srtm_masked <- raster("srtm_masked.tif")
+```
+
+We can see that masking allows to reduce the file size from 195 MB to 86 MB:
+
+```{r}
+file.size(filename(srtm_masked)) / 2^20
+```
+
+Let's see what it looks like:
+
+```{r}
+plot(srtm_masked)
+plot(country, add = TRUE)
+```
+
+Great! Next step now, in order to compute a value of elevation per province, is
+to get the polygons of the provinces:
+
+```{r eval = FALSE, include = FALSE}
+download.file("https://biogeo.ucdavis.edu/data/gadm3.6/Rsp/gadm36_VNM_1_sp.rds", "content/post/provinces.rds")
+```
+
+```{r eval = FALSE}
+download.file("https://biogeo.ucdavis.edu/data/gadm3.6/Rsp/gadm36_VNM_1_sp.rds", "provinces.rds")
+```
+
+Let's load it:
+
+```{r eval = FALSE, include = FALSE}
+provinces <- readRDS("content/post/provinces.rds")
+```
+
+```{r}
+provinces <- readRDS("provinces.rds")
+```
+
+Which gives:
+
+```{r}
+provinces
+```
+
+We can again verify that the projection is the same as the raster and the
+country polygon. Let's see what it looks like:
+
+```{r}
+plot(provinces)
+```
+
+What we want to do now is, for each province, extracting the elevation data from
+the raster file that are inside the polygon of the province and average them.
+This is what the following function does:
+
+```{r}
+mean_ele <- function(x) {
+  require(magrittr)
+  prov <- provinces[x, ]
+  rast <- crop(srtm_masked, prov) # cropping before the mask
+  mask(rast, rasterize(prov, rast)) %>% 
+    values() %>% 
+    mean(na.rm = TRUE)
+}
+```
+
+Note interestingly that a crop before the mask speeds up the masking by 6.
+Interestingly too, this `mean_ele()` function is about twice as fast as the use
+of the `extract()` function. Compare for example
+
+```{r}
+system.time(opt1 <- sapply(1:3, mean_ele))
+```
+
+with 
+
+```{r}
+system.time(opt2 <- sapply(extract(srtm_masked, provinces[1:3, ]), mean, na.rm = TRUE))
+```
+
+The reason for that is not clear to me. Maybe there are a number of checks in
+`extract()` function that substantially slow everything down. Let's check that
+it provides the same results however:
+
+```{r}
+opt1 - opt2
+```
+
+Let's also see what is the benefit of working on `strm_masked` instead of
+`strm_cropped`:
+
+```{r}
+mean_ele2 <- function(x) {
+  require(magrittr)
+  prov <- provinces[x, ]
+  rast <- crop(srtm_cropped, prov)
+  mask(rast, rasterize(prov, rast)) %>% 
+    values() %>% 
+    mean(na.rm = TRUE)
+}
+system.time(opt3 <- lapply(1:3, mean_ele2))
+```
+
+So, it means that the only advantage of the `srtm_masked` over `srtm_cropped` is
+that it's about twice as light on the disk but it doesn't make the calculations
+based on these rasters any faster. Good to know! Let's now compute this for all
+the provinces, which takes about 10':
+
+```{r}
+elevations1 <- sapply(seq_along(provinces), mean_ele)
+```
+
+## Weighting by population densities
+
+Now, let's consider an alternative way of computing these elevations by province,
+weighting them by the local population density. We can retrieve the local
+population density for Vietnam as a raster file from
+[WorldPop](http://www.worldpop.org):
+
+```{r eval = FALSE, include = FALSE}
+download.file("ftp://ftp.worldpop.org.uk/GIS/Population/Global_2000_2020/2010/VNM/vnm_ppp_2010.tif", "content/post/worldpop.tif")
+```
+
+```{r eval = FALSE}
+download.file("ftp://ftp.worldpop.org.uk/GIS/Population/Global_2000_2020/2010/VNM/vnm_ppp_2010.tif", "worldpop.tif")
+```
+
+Let's load it:
+
+```{r eval = FALSE, include = FALSE}
+worldpop <- raster("content/post/worldpop.tif")
+```
+
+```{r}
+worldpop <- raster("worldpop.tif")
+```
+
+Good news here is that the raster is already masked:
+
+```{r}
+plot(worldpop)
+```
+
+It also has the same projection than the other objects we've been dealing with
+so far:
+
+```{r}
+worldpop
+```
+
+Of note too, it has the same resolution as `srtm_masked`, but not quite the same
+grid definition though:
+
+```{r}
+srtm_masked
+```
+
+In order to be able to weigth the elevation data from `srtm_masked` by the
+population density data from `worldpop` we need to ensure that the two rasters
+use the same grid. This implies resampling one of the raster on the grid of the
+other one. Let's resample `srtm_masked` on `worldpop`. It takes about 2':
+
+```{r}
+srtm_masked2 <- resample(srtm_masked, worldpop)
+```
+
+We can check that it worked:
+
+```{r}
+worldpop
+```
+
+and:
+
+```{r}
+srtm_masked2
+```
+
+Below is a new version of the `mean_ele()` function that performs the population
+weighting:
+
+```{r}
+mean_ele3 <- function(x) {
+  prov <- provinces[x, ]
+  srtm <- crop(srtm_masked2, prov)
+  wpop <- crop(worldpop, prov)
+  prov_mask <- rasterize(prov, srtm)
+  srtm_val <- values(mask(srtm, prov_mask))
+  wpop_val <- values(mask(wpop, prov_mask))
+  weights <- wpop_val / sum(wpop_val, na.rm = TRUE)
+  sum(weights * srtm_val, na.rm = TRUE)
+}
+```
+
+Let's apply it to all the provinces, it takes about 16':
+
+```{r}
+elevations2 <- sapply(seq_along(provinces), mean_ele3)
+```
+
+Let's compare the 2 measures of elevation by province:
+
+```{r}
+(elevations <- data.frame(province = provinces$VARNAME_1, elevations1, elevations2))
+```
+
+Let's visualize this:
+
+```{r}
+plot(elevations2 ~ elevations1, elevations, xlab = "weighted by population density", ylab = "non weighted", col = "blue")
+abline(0, 1)
+```
+
+This figure shows clearly that the population tends to gather in the lower parts
+of the province.
