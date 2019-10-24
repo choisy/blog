@@ -18,3 +18,5 @@ content/post/srtm_cropped.tif
 content/post/srtm_masked.tif
 content/post/worldpop.tif
 content/post/provinces.rds
+content/post/country_mask.tif
+content/post/country_mask.tif.aux.xml
