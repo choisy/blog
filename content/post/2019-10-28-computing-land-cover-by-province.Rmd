@@ -1,0 +1,245 @@
+---
+title: Computing land cover by province
+author: Marc Choisy
+date: '2019-10-28'
+slug: computing-land-cover-by-province
+categories:
+  - big data
+  - computing
+  - R
+  - spatial
+tags: []
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r general options, include = FALSE}
+knitr::knit_hooks$set(
+  margin = function(before, options, envir) {
+    if (before) par(mgp = c(1.5, .5, 0), bty = "n", plt = c(.105, .97, .13, .97))
+    else NULL
+  })
+
+knitr::opts_chunk$set(cache = TRUE, autodep = TRUE, message = FALSE, warning = FALSE,
+                      dev.args = list(pointsize = 11), fig.height = 3.5,
+                      fig.width = 4.24725, fig.retina = 2, fig.align = "center")
+
+# options(width = 137)
+```
+
+## Introduction
+
+
+
+## Packages
+
+```{r}
+library(sp)
+library(raster)
+library(magrittr)
+```
+
+## Simple mean
+
+```{r}
+globcov <- globcoverVN::getgcvn()
+```
+
+which gives
+
+```{r}
+globcov
+```
+
+WGS84 unprojected data.
+
+```{r}
+plot(globcov)
+```
+
+Note that we can get access to the legend this way:
+
+```{r}
+globcov@legend
+```
+
+Next step now, in order to compute values of land cover per province, is to get
+the polygons of the provinces from [GADM](https://gadm.org):
+
+```{r eval = FALSE, include = FALSE}
+download.file("https://biogeo.ucdavis.edu/data/gadm3.6/Rsp/gadm36_VNM_1_sp.rds", "content/post/provinces.rds")
+```
+
+```{r eval = FALSE}
+download.file("https://biogeo.ucdavis.edu/data/gadm3.6/Rsp/gadm36_VNM_1_sp.rds", "provinces.rds")
+```
+
+Let's load it:
+
+```{r eval = FALSE, include = FALSE}
+provinces <- readRDS("content/post/provinces.rds")
+```
+
+```{r}
+provinces <- readRDS("provinces.rds")
+```
+
+Which gives:
+
+```{r}
+provinces
+```
+
+Note that the projection is the same as the raster. Let's see what it looks
+like:
+
+```{r}
+plot(globcov)
+plot(provinces, add = TRUE)
+```
+
+What we want to do now is, for each province, extracting the land cover data
+from the raster file that are inside the polygon of the province and then
+compute proportions. This is what the following function does:
+
+```{r}
+proportion_lc <- function(x) {
+  require(magrittr)
+  prov <- provinces[x, ]
+  rast <- crop(globcov, prov) # cropping before the mask
+  mask(rast, rasterize(prov, rast)) %>% 
+    values() %>% 
+    na.exclude() %>% 
+    table() %>% 
+    {100 * . / sum(.)}
+}
+```
+
+Note interestingly that, as noted [here](),
+
+* a crop before the mask speeds up the masking by 6 and
+* this `proportion_lc()` function is about twice as fast as the use of the
+`extract()` function.
+
+Let's now compute this for all the provinces, which takes about 2':
+
+```{r}
+land_cover1 <- provinces %>%
+  seq_along() %>%
+  lapply(proportion_lc) %>% 
+  setNames(provinces@data$VARNAME_1) %>% 
+  c(., list(.id = "province")) %>%
+  do.call(dplyr::bind_rows, .) %>% 
+  tidyr::replace_na(., as.list(setNames(rep(0, ncol(.)), names(.))))
+```
+
+## Weighting by population densities
+
+Now, let's consider an alternative way of computing these propotions of land
+cover by province, weighting them by the local population density. We can
+retrieve the local population density for Vietnam as a raster file from
+[WorldPop](http://www.worldpop.org):
+
+```{r eval = FALSE, include = FALSE}
+download.file("ftp://ftp.worldpop.org.uk/GIS/Population/Global_2000_2020/2010/VNM/vnm_ppp_2010.tif", "content/post/worldpop.tif")
+```
+
+```{r eval = FALSE}
+download.file("ftp://ftp.worldpop.org.uk/GIS/Population/Global_2000_2020/2010/VNM/vnm_ppp_2010.tif", "worldpop.tif")
+```
+
+Let's load it:
+
+```{r eval = FALSE, include = FALSE}
+worldpop <- raster("content/post/worldpop.tif")
+```
+
+```{r}
+worldpop <- raster("worldpop.tif")
+```
+
+It gives:
+
+```{r}
+plot(worldpop)
+plot(provinces, add = TRUE)
+```
+
+It also has the same projection than the other objects we've been dealing with
+so far:
+
+```{r}
+worldpop
+```
+
+However, it does not have the same resolution as `globcov`: there are about 10
+times more pixels in `worldpop` than in `globcov`. Let's thus resample
+`worldpop` on `globcov` (takes about 2'):
+
+```{r}
+worldpop2 <- resample(worldpop, globcov)
+```
+
+We can check that it worked:
+
+```{r}
+worldpop2
+```
+
+and:
+
+```{r}
+globcov
+```
+
+Below is a new version of the `proportion_lc()` function that performs the
+population weighting:
+
+```{r}
+proportion_lc2 <- function(x) {
+  require(magrittr)
+  prov <- provinces[x, ]
+  glcv <- crop(globcov, prov)
+  wpop <- crop(worldpop2, prov)
+  prov_mask <- rasterize(prov, glcv)
+  glvc_val <- values(mask(glcv, prov_mask))
+  wpop_val <- values(mask(wpop, prov_mask))
+  weights <- wpop_val / sum(wpop_val, na.rm = TRUE)
+  data.frame(glvc_val, weights) %>% 
+    na.exclude() %>%
+    dplyr::group_by(glvc_val) %>%
+    dplyr::summarize(val = sum(weights)) %$%
+    setNames(val, glvc_val) %>%
+    {100 * . / sum(.)}
+}
+```
+
+Let's apply it to all the provinces, it takes about 2':
+
+```{r}
+land_cover2 <- provinces %>%
+  seq_along() %>%
+  lapply(proportion_lc2) %>% 
+  setNames(provinces@data$VARNAME_1) %>% 
+  c(., list(.id = "province")) %>%
+  do.call(dplyr::bind_rows, .) %>% 
+  tidyr::replace_na(., as.list(setNames(rep(0, ncol(.)), names(.))))
+```
+
+Let's compare the 2 measures of land cover by province:
+
+```{r}
+for (i in 2:ncol(land_cover1)) {
+  x <- unlist(land_cover1[, i])
+  y <- unlist(land_cover2[, i])
+  xylim <- range(c(x, y))
+  plot(y, x, xlim = xylim, ylim = xylim,
+       xlab = "weighted by population density",
+       ylab = "non weighted", col = "blue",
+       main = globcov@legend@names[i - 1], cex.main = .5)
+  abline(0, 1)
+}
+```
+
+This figure shows clearly that the population tends to gather in the lower parts
+of the province.
